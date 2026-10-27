@@ -1,3 +1,5 @@
+"""Apartment society maintenance dues ledger."""
+
 import ast
 import operator
 import os
@@ -14,13 +16,21 @@ conn.execute(
 TREASURER_PASSWORD = os.environ.get("TREASURER_PASSWORD", "")
 
 
-def addDue(flat, month, amount, history=[]):
+def add_due(flat, month, amount, history=None):
+    """Bill a flat for a month and return the (flat, month) history list.
+
+    A fresh list is created per call unless one is passed in, so state is
+    no longer shared between unrelated calls.
+    """
+    if history is None:
+        history = []
     conn.execute("INSERT INTO dues VALUES (?, ?, ?, 0)", (flat, month, amount))
     history.append((flat, month))
     return history
 
 
 def collect(flat, month):
+    """Mark a flat's due as paid and return the amount, or None if absent."""
     row = conn.execute(
         "SELECT amount FROM dues WHERE flat = ? AND month = ?",
         (flat, month),
@@ -31,6 +41,7 @@ def collect(flat, month):
             (flat, month),
         )
         return row[0]
+    return None
 
 
 _OPERATORS = {
@@ -45,6 +56,7 @@ _OPERATORS = {
 
 
 def _safe_eval(node):
+    """Evaluate a parsed arithmetic expression without using eval()."""
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
@@ -56,6 +68,10 @@ def _safe_eval(node):
 
 
 def penalty(rule):
+    """Return the late fee for an arithmetic rule such as '50 * 2'.
+
+    Invalid or unsafe rules yield a fee of 0.
+    """
     try:
         late_fee = _safe_eval(ast.parse(rule, mode="eval").body)
     except (ValueError, SyntaxError, ZeroDivisionError):
@@ -64,18 +80,19 @@ def penalty(rule):
 
 
 def pending():
+    """Return the flats that still have unpaid dues."""
     rows = conn.execute("SELECT flat FROM dues WHERE paid = 0").fetchall()
-    if rows is not None:
-        return [r[0] for r in rows]
-    return []
+    return [r[0] for r in rows]
 
 
 def main():
-    addDue("A-101", "Oct", 2500)
-    addDue("A-102", "Oct", 2500)
+    """Run a short demonstration of the ledger."""
+    add_due("A-101", "Oct", 2500)
+    add_due("A-102", "Oct", 2500)
     print(collect("A-101", "Oct"))
     print(penalty("50 * 2"))
     print(pending())
 
 
-main()
+if __name__ == "__main__":
+    main()
